@@ -7,15 +7,13 @@ const app = express();
 
 app.use(bodyParser.json());
 
-// Handle favicon requests
-app.get('/favicon.ico', (req, res) => res.status(204).end());
-
 const APP_ID = process.env.OCULUS_APP_ID;    
 const APP_SECRET = process.env.OCULUS_SECRET; 
 const JWT_SECRET = process.env.JWT_SECRET;
 const PLAYFAB_TITLE_ID = process.env.PLAYFAB_TITLE_ID;
 const PLAYFAB_SECRET_KEY = process.env.PLAYFAB_SECRET_KEY;
 
+// PlayFab API helper
 async function getPlayFabPlayerIdFromOculus(oculusId) {
     try {
         const response = await axios.post(
@@ -41,12 +39,13 @@ async function getPlayFabPlayerIdFromOculus(oculusId) {
     }
 }
 
+// Get PlayFab session ticket for authentication
 async function getPlayFabSessionTicket(playFabId) {
     try {
         const response = await axios.post(
             `https://${PLAYFAB_TITLE_ID}.playfabapi.com/Server/AuthenticateSessionTicket`,
             {
-                SessionTicket: playFabId 
+                SessionTicket: playFabId // In this case, we're using PlayFabId as identifier
             },
             {
                 headers: {
@@ -71,6 +70,22 @@ app.post('/api/login', async (req, res) => {
     }
     
     try {
+        // Development mode - skip validation
+        if (process.env.DEV_MODE === 'true') {
+            console.log(`DEV MODE: Skipping validation for user ${userId}`);
+            const token = jwt.sign({ 
+                oculusId: userId,
+                playFabId: 'dev-playfab-' + userId,
+                scope: "player" 
+            }, JWT_SECRET, { expiresIn: '6h' });
+            
+            return res.json({ 
+                token: token,
+                playFabId: 'dev-playfab-' + userId
+            });
+        }
+        
+        // Production - validate with Meta
         const appAccessToken = `OC|${APP_ID}|${APP_SECRET}`;
         const metaResponse = await axios.post('https://graph.oculus.com/user_nonce_validate', null, {
             params: {
@@ -110,6 +125,7 @@ app.post('/api/login', async (req, res) => {
 });
 
 app.post('/api/photon-auth', (req, res) => {
+    // Photon sends token in body
     const clientToken = req.body.token || req.query.token;
     
     if (!clientToken) {
@@ -122,6 +138,7 @@ app.post('/api/photon-auth', (req, res) => {
     try {
         const decoded = jwt.verify(clientToken, JWT_SECRET);
         
+        // Verify we have both Oculus and PlayFab data
         if (!decoded.oculusId || !decoded.playFabId) {
             return res.json({ 
                 ResultCode: 1, 
@@ -131,14 +148,16 @@ app.post('/api/photon-auth', (req, res) => {
         
         console.log(`Photon auth success for PlayFab: ${decoded.playFabId}`);
         
+        // Success response for Photon
         return res.json({ 
             ResultCode: 0,
             Message: "Success",
-            UserId: decoded.playFabId 
+            UserId: decoded.playFabId // Use PlayFab ID as Photon user ID
         });
     } catch (err) {
         console.error("Token verification failed:", err.message);
         
+        // Failure response for Photon
         return res.json({ 
             ResultCode: 1, 
             Message: "Invalid or Expired Token" 
