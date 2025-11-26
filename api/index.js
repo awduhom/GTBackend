@@ -7,6 +7,9 @@ const app = express();
 
 app.use(bodyParser.json());
 
+// Handle favicon requests
+app.get('/favicon.ico', (req, res) => res.status(204).end());
+
 const APP_ID = process.env.OCULUS_APP_ID;    
 const APP_SECRET = process.env.OCULUS_SECRET; 
 const JWT_SECRET = process.env.JWT_SECRET;
